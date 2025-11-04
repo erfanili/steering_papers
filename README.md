@@ -3,7 +3,7 @@
 <table>
   <tr>
     <th style="min-width:170px;">Method (paper)</th>
-    <th style="min-width:300px;">How the steering vector is obtained</th>
+    <th style="min-width:500px;">How the steering vector is obtained</th>
     <th style="min-width:200px;">Where to intervene</th>
     <th style="min-width:150px;">Granularity</th>
     <th style="min-width:180px;">Static vs. input-dependent</th>
