@@ -1,5 +1,5 @@
 <h1>Methods × Design Decisions</h1>
-
+<div style="overflow-x:auto;">
 <table>
   <tr>
     <th style="min-width:170px;">Method (paper)</th>
