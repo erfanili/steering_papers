@@ -1,14 +1,125 @@
-# Methods × Design Decisions
+<h1>Methods × Design Decisions</h1>
 
-| Method (paper) | How the steering vector is obtained | Where to intervene | Granularity | Static vs. input-dependent | What tokens are steered | Strength/normalization & tuning | Main goal/effects |
-|---|--------|---|---|---|---|---|---|
-| **Inference-Time Intervention (ITI)** | Train linear probes per attention head to find “truthful directions”; use either probe normal vector or mean-difference between true/false; select top-K heads by probe accuracy | Additive shift in **selected attention heads’** output; not whole residual stream | **Head-wise sparse** (top-K heads) | **Static** per objective (truthfulness) | Language tokens (LLMs) | Scale by α×σ along direction; hyperparams **K** and **α** | Improves TruthfulQA; modest OOD gains; preserves general ability when sparse |
-| **Textual Steering Vectors for MLLMs** | Build concept vectors from **text-only backbones** via SAE / linear probe / mean-shift; then inject into MLLM; grid-search best layer & α | Add to hidden states at a chosen **middle layer** | **Token-set level** (apply to image/text/both) | **Static** per skill (e.g., count/relations) | Image tokens, text tokens, or both | Grid-search **layer ℓ** and **α**; normalized vs unnormalized vectors have separate ranges | Improves **counting & spatial** reasoning by steering visual understanding with textual features |
-| **Learn-to-Steer (L2S)** | Start from contrastive prompting (P2S) to get per-input vectors; then train a **small auxiliary network** to **predict input-specific steering vectors** | Inject in LM stack (residual pathway) | **Per-input** vector | **Input-dependent** (learned) | Multimodal tokens | Learns when to steer (incl. “no steering” for safe inputs”); α chosen to preserve utility | **Safety steering**; reduces harmfulness while preserving normal answers |
-| **GrAInS** | Use **Integrated Gradients** to find top influential tokens; form contrastive delta vectors; PCA aggregates into **layer-wise** steering vector | Add to **all tokens** at each steered layer; renormalize activations | Token-aware vector; applied layer-wise | **Input-aware** via attribution | Both LLM + VLM tokens | λ strength then **L2 renorm** | Improves truthfulness; reduces hallucinations; increases alignment win-rates |
-| **Unified Understanding & Evaluation** | Unifies CAA/RepE/ITI; shows **mean of differences (CAA)** is theoretically optimal; formalizes vector choices | Discusses extraction points (attn/MLP/residual); emphasizes middle layers | Highlights global-vector failure modes | N/A | N/A | Formalizes CAA, PCA, probe, ITI normalization | CAA > PCA/Classifier; guidance on layer/location + context sensitivity |
-| **MAT-STEER (Multi-Attribute Targeted Steering)** | Learn **attribute-specific** vectors with an alignment objective on pos/neg activations; add **sparsity** and **orthogonality** across attributes; **token-level gating** selects relevant tokens per attribute | Add to hidden states at chosen layers during inference (activation addition) | **Per-token & per-attribute** via gates | **Input-dependent** (gate strength varies by token/attribute) | Language tokens (LLMs) | Gate-weighted α; regularizers to reduce inter-attribute conflict | Jointly improves competing attributes (e.g., truthfulness, toxicity, bias; helpfulness/correctness/coherence) while limiting overcorrection |
-| **ASTRA (Adaptive Steering for VLM Jailbreak Defense)** | Build vectors via **image attribution**: random ablation of visual tokens + **Lasso** surrogate to find top-k harmful tokens; vector = diff of activations with/without impactful tokens | Layer activations in the VLM (vision→language pipeline) | **Layer-wise**, focused on harmful **visual-token** directions | **Input-dependent** via **projection-based** adaptive coefficient | Primarily **visual tokens** (affecting downstream text) | Steering coefficient from projection between calibrated activation and vector; single-pass inference | Strongly reduces jailbreak success/toxicity, minimal utility drop, good transfer to unseen attacks |
-| **CAST (Conditional Activation Steering)** | Learn **behavior** vector (e.g., refusal) and **condition** vector(s) capturing prompt categories; at inference, check similarity to decide whether to apply behavior vector | Hidden states at selected layers (LLM) | **Global** when condition fires; otherwise no change | **Input-dependent** via condition thresholding | Language tokens (LLMs) | Apply α·v only if sim(h, proj₍c₎h)>θ; supports multi-condition logic | **Selective refusal**: refuse harmful categories while answering harmless prompts; cheap, training-free control |
-| **VTI (Visual & Textual Intervention for LVLM Hallucinations)** | Precompute latent **directions** that emulate averaging over perturbed images (stabilize vision features); optionally combine with text-space intervention | Vision features & text hidden states before decoding | **Layer/space-level** interventions (vision + text) | Mostly **static** per model/task (directions precomputed), applied to each input | Visual tokens/features and text states in LVLMs | Fixed directions with tunable α; task-agnostic setup | **Reduce hallucinations** by stabilizing vision features; improves consistency across benchmarks without extra training |
-| **Modality Preference Steering (MC2 benchmark + probing/steering)** | Probe latent reps to find **vision-vs-text preference** directions; create steering vectors to **amplify** targeted modality | Representation space at selected layers in MLLMs | **Global preference** (modality weighting) | **Static** per chosen preference (can swap vectors to switch) | Both image & text tokens (modality weighting) | Tune α and layer scope to bias toward vision or text | **Control modality preference**; improves multimodal understanding and translation when aligned with task needs |
+<table>
+  <tr>
+    <th style="min-width:170px;">Method (paper)</th>
+    <th style="min-width:300px;">How the steering vector is obtained</th>
+    <th style="min-width:200px;">Where to intervene</th>
+    <th style="min-width:150px;">Granularity</th>
+    <th style="min-width:180px;">Static vs. input-dependent</th>
+    <th style="min-width:150px;">What tokens are steered</th>
+    <th style="min-width:200px;">Strength / normalization & tuning</th>
+    <th style="min-width:250px;">Main goal / effects</th>
+  </tr>
+
+  <tr>
+    <td><b>Inference-Time Intervention (ITI)</b></td>
+    <td>Train linear probes per attention head; use probe normal or pos–neg mean-difference; select top-K heads</td>
+    <td>Add to output of selected attention heads</td>
+    <td><b>Head-wise sparse</b> (top-K)</td>
+    <td><b>Static</b> per objective</td>
+    <td>Language tokens (LLMs)</td>
+    <td>Scale by α×σ along direction; tune K, α</td>
+    <td>Improves TruthfulQA; modest OOD gains; minimal ability degradation</td>
+  </tr>
+
+  <tr>
+    <td><b>Textual Steering Vectors for MLLMs</b></td>
+    <td>Build concept vectors from text-only models (SAE / probe / mean-shift); inject to MLLM; grid-search layer & α</td>
+    <td>Add to hidden at chosen middle layer</td>
+    <td><b>Token-set level</b> (image/text/both)</td>
+    <td><b>Static</b> per skill</td>
+    <td>Image + text tokens</td>
+    <td>Grid search layer ℓ and α; different ranges for normalized vs unnormalized</td>
+    <td>Improves counting & spatial reasoning</td>
+  </tr>
+
+  <tr>
+    <td><b>Learn-to-Steer (L2S)</b></td>
+    <td>Start with contrastive prompting (P2S) to get per-input vectors; train auxiliary net to predict vector</td>
+    <td>Residual pathway</td>
+    <td><b>Per-input</b></td>
+    <td><b>Input-dependent</b> (learned)</td>
+    <td>Multimodal tokens</td>
+    <td>Network learns when to steer; α selected for utility</td>
+    <td>Safety steering; reduces harmfulness but preserves normal answers</td>
+  </tr>
+
+  <tr>
+    <td><b>GrAInS</b></td>
+    <td>Use Integrated Gradients to find top tokens; contrastive deltas; PCA → layer-wise vector</td>
+    <td>Add at each steered layer; renormalize</td>
+    <td>Token-aware, layer-wise</td>
+    <td><b>Input-aware</b> via attribution</td>
+    <td>LLM + VLM tokens</td>
+    <td>λ strength then L2 renorm</td>
+    <td>Improves truthfulness; reduces hallucination; better alignment</td>
+  </tr>
+
+  <tr>
+    <td><b>Unified Understanding & Evaluation</b></td>
+    <td>Unifies CAA / RepE / ITI; shows mean-difference (CAA) is theoretically optimal; formalizes variants</td>
+    <td>Discusses extraction positions (attn / MLP / residual)</td>
+    <td>Highlights global-vector failure modes</td>
+    <td>N/A</td>
+    <td>N/A</td>
+    <td>Formalizes CAA, PCA, probe, ITI normalization</td>
+    <td>CAA > PCA/Classifier; guidance on layer/location & context</td>
+  </tr>
+
+  <tr>
+    <td><b>MAT-STEER</b> (Multi-Attribute Targeted Steering)</td>
+    <td>Learn attribute vectors on pos/neg activations; sparsity + orthogonality; token-level gating</td>
+    <td>Add to hidden states at chosen layers</td>
+    <td><b>Per-token & per-attribute</b></td>
+    <td><b>Input-dependent</b> (gated)</td>
+    <td>Language tokens</td>
+    <td>Gate-weighted α; reduces attribute conflict</td>
+    <td>Jointly improves multiple attributes (truth, toxicity, bias, helpfulness)</td>
+  </tr>
+
+  <tr>
+    <td><b>ASTRA</b> (Adaptive Steering for VLM Jailbreak Defense)</td>
+    <td>Image attribution via random visual-token ablation + Lasso; vector = activation diff</td>
+    <td>Layer activations in VLM pipeline</td>
+    <td><b>Layer-wise</b>, harmful visual-directions</td>
+    <td><b>Input-dependent</b> via projection</td>
+    <td>Primary: visual tokens</td>
+    <td>Coefficient from projection; single-pass</td>
+    <td>Strong jailbreak defense; minimal utility loss; transfers well</td>
+  </tr>
+
+  <tr>
+    <td><b>CAST</b> (Conditional Activation Steering)</td>
+    <td>Learn behavior vector + condition vector(s); apply only if prompt matches condition</td>
+    <td>Hidden states at selected layers</td>
+    <td><b>Global</b> when triggered</td>
+    <td><b>Input-dependent</b> via threshold</td>
+    <td>Language tokens</td>
+    <td>Apply α·v if similarity > threshold; supports multi-conditions</td>
+    <td>Selective refusal; refuses harmful prompts but answers harmless ones</td>
+  </tr>
+
+  <tr>
+    <td><b>VTI</b> (Visual & Textual Intervention)</td>
+    <td>Precompute latent directions approximating averaged perturbed images; optional text intervention</td>
+    <td>Vision features + text hidden states</td>
+    <td><b>Layer / space-level</b></td>
+    <td>Mostly <b>static</b></td>
+    <td>Visual + text tokens</td>
+    <td>Fixed directions with tunable α</td>
+    <td>Reduce hallucinations; improve visual consistency</td>
+  </tr>
+
+  <tr>
+    <td><b>Modality Preference Steering</b> (MC2)</td>
+    <td>Probe reps to find vision–text preference vectors; steer to amplify chosen modality</td>
+    <td>Representation space</td>
+    <td><b>Global preference</b></td>
+    <td><b>Static</b></td>
+    <td>Image + text tokens</td>
+    <td>Tune α + layer scope</td>
+    <td>Control modality preference; improve translation & multimodal understanding</td>
+  </tr>
+
+</table>
